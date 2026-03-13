@@ -1,0 +1,63 @@
+name: Build APK from React
+on:
+  push:
+    branches: [ main ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package.json
+
+      - name: Build React app
+        working-directory: web
+        run: |
+          npm install
+          npm run build || npx vite build || true
+          # fallback: اذا ما عنده build script نستخدم الملفات مباشرة
+          if [ ! -d "dist" ]; then
+            mkdir -p dist
+            cp -r * dist/ 2>/dev/null || true
+          fi
+
+      - name: Copy web build to Android assets
+        run: |
+          mkdir -p app/src/main/assets
+          cp -r web/dist/* app/src/main/assets/
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Download gradle-wrapper.jar
+        run: |
+          mkdir -p gradle/wrapper
+          curl -fsSL -o gradle/wrapper/gradle-wrapper.jar             "https://github.com/gradle/gradle/raw/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+
+      - name: Accept SDK licenses
+        run: |
+          SDKMANAGER="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          yes | $SDKMANAGER --licenses || true
+          $SDKMANAGER "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Build Debug APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
